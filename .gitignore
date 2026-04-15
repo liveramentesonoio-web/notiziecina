@@ -1,0 +1,11 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+data.db
+*.db
+italy_chinese_news_monitor.egg-info/
+.streamlit/

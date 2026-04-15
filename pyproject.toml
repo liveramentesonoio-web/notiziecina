@@ -1,0 +1,16 @@
+[project]
+name = "italy-chinese-news-monitor"
+version = "0.1.0"
+description = "Local Mac RSS monitor for Chinese-related crime, enforcement, and social news from Italian media."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "beautifulsoup4>=4.12.3",
+  "feedparser>=6.0.11",
+  "requests>=2.32.3",
+  "streamlit>=1.44.1",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
