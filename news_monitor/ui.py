@@ -1,12 +1,12 @@
+import html
 import json
 import uuid
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 from news_monitor.config import KEYWORD_GROUPS, KEYWORD_TRANSLATIONS
 from news_monitor.database import get_connection, get_monitor_stats, get_regions, list_articles
-from news_monitor.service import refresh_articles, rewrite_article, translate_article
+from news_monitor.service import refresh_articles, rewrite_article
 from news_monitor.translator import has_translation_api_key
 
 
@@ -20,20 +20,23 @@ REGION_LABELS = {
 }
 
 
-def _badge_list(values: str) -> str:
+def _keyword_badges(values: str) -> list[str]:
     try:
         items = json.loads(values or "[]")
     except json.JSONDecodeError:
         items = []
-    formatted = [KEYWORD_TRANSLATIONS.get(item, item) for item in items]
-    return " | ".join(formatted)
+    return [KEYWORD_TRANSLATIONS.get(item, item) for item in items]
+
+
+def _region_label(region: str) -> str:
+    return REGION_LABELS.get(region, region)
 
 
 def _inject_styles() -> None:
     st.markdown(
         """
         <style>
-        html, body, [class*="css"]  {
+        html, body, [class*="css"] {
           font-family: "Source Han Sans SC", "Noto Sans CJK SC", "Noto Sans SC",
                        "PingFang SC", "Microsoft YaHei", sans-serif !important;
         }
@@ -45,38 +48,34 @@ def _inject_styles() -> None:
           padding-right: 1rem;
         }
         .header-card {
-          background: linear-gradient(135deg, #fffaf2 0%, #ffffff 60%, #f8fafc 100%);
-          border: 1px solid #fde6c8;
-          border-radius: 20px;
-          padding: 16px 18px 12px 18px;
-          margin-bottom: 12px;
+          background: linear-gradient(135deg, #fff8ef 0%, #ffffff 62%, #fff4f1 100%);
+          border: 1px solid #f7d8cf;
+          border-radius: 24px;
+          padding: 18px 18px 14px 18px;
+          margin-bottom: 14px;
+          box-shadow: 0 18px 40px rgba(15, 23, 42, 0.04);
         }
         .app-subtitle {
-          color: #475569;
+          color: #596579;
           font-size: 0.97rem;
-          margin-bottom: 0;
+          line-height: 1.55;
         }
         .status-box {
-          background: linear-gradient(180deg, #fffdf8 0%, #ffffff 100%);
-          border: 1px solid #f5e7c8;
-          border-radius: 14px;
+          background: linear-gradient(180deg, #fffdf9 0%, #ffffff 100%);
+          border: 1px solid #f0e3d1;
+          border-radius: 16px;
           padding: 12px 14px;
-          margin: 8px 0 16px 0;
-        }
-        .article-meta {
-          color: #64748b;
-          font-size: 0.88rem;
-          line-height: 1.5;
+          margin: 10px 0 14px 0;
         }
         .sidebar-tip {
           color: #64748b;
           font-size: 0.82rem;
-          line-height: 1.5;
+          line-height: 1.55;
         }
         .sidebar-keywords {
-          background: #fafaf9;
-          border: 1px solid #ece7e1;
-          border-radius: 14px;
+          background: #faf8f6;
+          border: 1px solid #ece4dd;
+          border-radius: 16px;
           padding: 10px 12px;
           margin-top: 10px;
         }
@@ -98,28 +97,96 @@ def _inject_styles() -> None:
           color: #64748b;
           line-height: 1.55;
         }
-        .label-chip {
-          display: inline-block;
-          padding: 4px 9px;
-          border-radius: 999px;
-          background: #f1f5f9;
-          color: #475569;
-          font-size: 0.79rem;
-          margin: 4px 6px 0 0;
+        .article-divider {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin: 20px 0 14px 0;
         }
-        .article-section-title {
+        .article-divider-line {
+          flex: 1;
+          height: 2px;
+          background: linear-gradient(90deg, rgba(220,38,38,0.18), rgba(220,38,38,0.78), rgba(220,38,38,0.18));
+          border-radius: 999px;
+        }
+        .article-score-circle {
+          width: 78px;
+          height: 78px;
+          border-radius: 50%;
+          background: radial-gradient(circle at 30% 30%, #fff1f2 0%, #ffe4e6 28%, #ef4444 100%);
+          color: #7f1d1d;
+          border: 1px solid #fca5a5;
+          box-shadow: 0 12px 28px rgba(220, 38, 38, 0.18);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
           font-weight: 700;
-          font-size: 0.92rem;
-          margin-top: 10px;
-          margin-bottom: 4px;
+          line-height: 1.1;
+          text-align: center;
+          flex-shrink: 0;
+        }
+        .article-score-circle small {
+          font-size: 0.7rem;
+          margin-bottom: 2px;
+        }
+        .article-score-circle strong {
+          font-size: 1.18rem;
+          color: #ffffff;
+          text-shadow: 0 1px 2px rgba(127, 29, 29, 0.35);
+        }
+        .meta-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin: 6px 0 10px 0;
+        }
+        .meta-pill {
+          display: inline-flex;
+          align-items: center;
+          padding: 6px 10px;
+          border-radius: 999px;
+          background: #f8fafc;
+          border: 1px solid #e5e7eb;
+          color: #475569;
+          font-size: 0.82rem;
+          line-height: 1.2;
+        }
+        .meta-pill strong {
+          margin-right: 4px;
+          color: #0f172a;
+        }
+        .keyword-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 8px;
+          margin-bottom: 8px;
+        }
+        .keyword-chip {
+          display: inline-flex;
+          align-items: center;
+          padding: 6px 10px;
+          border-radius: 999px;
+          background: #fff5f5;
+          border: 1px solid #fecaca;
+          color: #9f1239;
+          font-size: 0.8rem;
+          line-height: 1.2;
+        }
+        .status-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin: 4px 0 10px 0;
         }
         .status-pill {
-          display: inline-block;
-          padding: 3px 8px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 5px 10px;
           border-radius: 999px;
           font-size: 0.76rem;
-          margin-right: 6px;
-          margin-top: 6px;
           border: 1px solid #d1d5db;
           color: #334155;
           background: #f8fafc;
@@ -134,72 +201,83 @@ def _inject_styles() -> None:
           border-color: #fdba74;
           color: #9a3412;
         }
-        .translated-box {
+        .section-box {
+          border-radius: 16px;
+          padding: 12px 13px;
+          border: 1px solid #e5e7eb;
+          margin-top: 10px;
+        }
+        .section-box.section-translation {
           background: #f8fafc;
-          border-radius: 12px;
-          padding: 10px 12px;
-          margin-top: 10px;
-          border: 1px solid #e8eef5;
+          border-color: #e2e8f0;
         }
-        .rewrite-box {
-          background: linear-gradient(180deg, #fff8f1 0%, #ffffff 100%);
-          border-radius: 12px;
-          padding: 10px 12px;
-          margin-top: 10px;
-          border: 1px solid #fedec1;
+        .section-box.section-rewrite {
+          background: linear-gradient(180deg, #fff8f1 0%, #fffdfb 100%);
+          border-color: #fed7aa;
         }
-        .thumb-wrap {
-          margin: 0 0 10px 0;
+        .section-kicker {
+          color: #7c2d12;
+          font-size: 0.8rem;
+          font-weight: 800;
+          letter-spacing: 0.02em;
+          margin-bottom: 8px;
+        }
+        [data-testid="stVerticalBlockBorderWrapper"]:has(.rewrite-shell) {
+          border: 1.5px solid rgba(251, 146, 60, 0.95) !important;
+          box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.08), 0 12px 26px rgba(251, 146, 60, 0.08);
+          background: linear-gradient(180deg, rgba(255, 247, 237, 0.82) 0%, rgba(255, 255, 255, 0.98) 100%);
+        }
+        .section-title {
+          font-weight: 700;
+          font-size: 0.92rem;
+          margin: 0;
+          color: #0f172a;
+        }
+        .content-block {
+          background: rgba(255,255,255,0.82);
+          border: 1px solid rgba(226,232,240,0.85);
+          border-radius: 14px;
+          padding: 10px 11px;
+          margin-top: 8px;
         }
         .thumb-wrap img {
-          width: min(100%, 168px);
-          max-height: 118px;
+          width: min(100%, 240px);
+          max-height: 164px;
           object-fit: cover;
-          border-radius: 14px;
+          border-radius: 16px;
           display: block;
-          box-shadow: 0 10px 24px rgba(15, 23, 42, 0.07);
+          box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
+          margin-bottom: 8px;
         }
-        .compact-title {
-          margin-bottom: 0.05rem;
-        }
-        .article-card {
-          background: #ffffff;
-          border: 1px solid #edf2f7;
-          border-radius: 18px;
-          padding: 14px 14px 12px 14px;
-          box-shadow: 0 12px 30px rgba(15, 23, 42, 0.035);
-          margin-bottom: 12px;
-        }
-        .tool-btn {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: 28px;
-          height: 28px;
-          border-radius: 9px;
-          border: 1px solid #16a34a;
-          background: #22c55e;
-          color: #ffffff;
-          font-size: 13px;
-          line-height: 1;
-        }
-        .news-divider {
-          height: 1px;
-          background: linear-gradient(90deg, rgba(220,38,38,0.0) 0%, rgba(220,38,38,0.7) 14%, rgba(220,38,38,0.7) 86%, rgba(220,38,38,0.0) 100%);
-          margin: 12px 0 14px 0;
+        .original-expander {
+          margin-top: 10px;
         }
         @media (max-width: 768px) {
           .block-container {
-            padding-left: 0.75rem;
-            padding-right: 0.75rem;
+            padding-left: 0.8rem;
+            padding-right: 0.8rem;
             padding-top: 0.8rem;
           }
-          h1 {
-            font-size: 1.7rem !important;
-            line-height: 1.25 !important;
+          .article-divider {
+            gap: 8px;
+            margin: 18px 0 12px 0;
           }
-          .article-meta {
-            font-size: 0.86rem;
+          .article-score-circle {
+            width: 66px;
+            height: 66px;
+          }
+          .article-score-circle small {
+            font-size: 0.64rem;
+          }
+          .article-score-circle strong {
+            font-size: 1rem;
+          }
+          .thumb-wrap img {
+            width: min(100%, 188px);
+            max-height: 134px;
+          }
+          .content-block {
+            padding: 9px 10px;
           }
         }
         </style>
@@ -208,77 +286,130 @@ def _inject_styles() -> None:
     )
 
 
-def _region_label(region: str) -> str:
-    return REGION_LABELS.get(region, region)
-
-
-def _render_small_button(text: str, label: str, key: str) -> None:
+def _render_copy_button(text: str, key: str) -> None:
+    element_id = f"copy-btn-{key}-{uuid.uuid4().hex}"
     safe_text = json.dumps(text or "", ensure_ascii=False)
-    element_id = f"copy-icon-{key}-{uuid.uuid4().hex}"
-    components.html(
+    st.html(
         f"""
-        <div style="display:flex;justify-content:flex-end;">
-          <button id="{element_id}" class="tool-btn" style="
-            cursor:pointer;
-            width:auto;
-            min-width:58px;
-            padding:0 10px;
-            font-size:12px;">
-            {label}
-          </button>
-        </div>
+        <button id="{element_id}" style="
+          border:none;
+          background:#16a34a;
+          color:#ffffff;
+          border-radius:999px;
+          padding:6px 11px;
+          font-size:12px;
+          font-weight:700;
+          cursor:pointer;
+          line-height:1;
+          white-space:nowrap;">
+          复制
+        </button>
         <script>
           const btn = document.getElementById("{element_id}");
           if (btn) {{
             btn.addEventListener("click", async () => {{
               try {{
                 await navigator.clipboard.writeText({safe_text});
+                const original = btn.innerText;
                 btn.innerText = "已复制";
-                setTimeout(() => btn.innerText = "{label}", 1000);
+                setTimeout(() => btn.innerText = original, 1200);
               }} catch (e) {{
                 btn.innerText = "失败";
-                setTimeout(() => btn.innerText = "{label}", 1000);
+                setTimeout(() => btn.innerText = "复制", 1200);
               }}
             }});
           }}
         </script>
-        """,
-        height=32,
+        """
     )
+
+
+def _safe_block(text: str) -> str:
+    return html.escape(text or "").replace("\n", "<br>")
+
+
+def _render_meta(row) -> None:
+    st.markdown(
+        f"""
+        <div class="meta-row">
+          <span class="meta-pill"><strong>编号</strong>NC-{int(row["id"]):06d}</span>
+          <span class="meta-pill"><strong>来源</strong>{row["source_name"]}</span>
+          <span class="meta-pill"><strong>地区</strong>{_region_label(row["source_region"])}</span>
+          <span class="meta-pill"><strong>发布时间</strong>{row["published"] or "未知"}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_keywords(row) -> None:
+    badges = _keyword_badges(row["matched_keywords"])
+    if not badges:
+        return
+    chips = "".join(f'<span class="keyword-chip">{badge}</span>' for badge in badges)
+    st.markdown(
+        f"""
+        <div class="section-title">关键词</div>
+        <div class="keyword-row">{chips}</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_status(row) -> None:
+    translate_status = (
+        '<span class="status-pill status-ok">翻译完成</span>'
+        if row["translated_content"]
+        else '<span class="status-pill status-warn">待翻译</span>'
+    )
+    rewrite_status = (
+        '<span class="status-pill status-ok">改写完成</span>'
+        if row["rewritten_summary"]
+        else '<span class="status-pill status-warn">待改写</span>'
+    )
+    st.markdown(
+        f'<div class="status-row">{translate_status}{rewrite_status}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_section_header(title: str, copy_text: str | None, key: str) -> None:
+    cols = st.columns([8.5, 1.5], vertical_alignment="center")
+    with cols[0]:
+        st.markdown(f'<div class="section-title">{title}</div>', unsafe_allow_html=True)
+    with cols[1]:
+        if copy_text:
+            _render_copy_button(copy_text, key)
 
 
 def _sync_visible_count(target_count: int, result_count: int) -> None:
     if "visible_article_count" not in st.session_state:
         st.session_state.visible_article_count = min(10, max(result_count, 1))
 
-    filter_signature = (
-        target_count,
-        result_count,
-    )
+    filter_signature = (target_count, result_count)
     if st.session_state.get("visible_filter_signature") != filter_signature:
         st.session_state.visible_filter_signature = filter_signature
         st.session_state.visible_article_count = min(10, max(result_count, 1))
 
 
 def main() -> None:
-    st.set_page_config(
-        page_title="华人新闻",
-        page_icon="📰",
-        layout="wide",
-    )
+    st.set_page_config(page_title="华人新闻", page_icon="📰", layout="wide")
     _inject_styles()
 
     st.markdown('<div class="header-card">', unsafe_allow_html=True)
     st.title("华人新闻")
     st.markdown(
-        '<div class="app-subtitle">聚合意大利 RSS 新闻，重点筛选与华人群体、执法、犯罪、移民和社会事件相关的内容。</div>',
+        '<div class="app-subtitle">聚合意大利官方和主流媒体 RSS，重点筛选与华人群体、执法、犯罪、移民和社会事件相关的内容。</div>',
         unsafe_allow_html=True,
     )
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     with st.sidebar:
         st.header("控制面板")
-        st.markdown('<div class="sidebar-tip">当前版本以轻量 RSS 抓取为主，自动跳过本地已存在链接。</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="sidebar-tip">当前版本以 RSS 抓取为主，刷新时会自动跳过本地已存在链接，并补齐未完成的翻译和热门改写。</div>',
+            unsafe_allow_html=True,
+        )
         enrich_articles = st.toggle("补充正文和图片", value=True)
         max_enriched_articles = st.slider(
             "单次深抓上限",
@@ -296,7 +427,7 @@ def main() -> None:
         keyword = st.text_input("站内搜索", placeholder="税务 / immigrazione / rapina ...")
 
         if st.button("刷新 RSS", type="primary", width="stretch"):
-            with st.spinner("正在抓取 RSS 和文章详情页..."):
+            with st.spinner("正在抓取 RSS、补齐翻译和热门改写..."):
                 result = refresh_articles(
                     enrich_articles=enrich_articles,
                     max_enriched_articles=max_enriched_articles,
@@ -312,21 +443,24 @@ def main() -> None:
         st.divider()
         st.subheader("AI 功能")
         if has_translation_api_key():
-            st.caption("已连接 DeepSeek，可直接生成翻译和热门改写。")
+            st.caption("已连接 DeepSeek，刷新时会自动补齐原文翻译和热门改写。")
         else:
-            st.warning("未检测到 DeepSeek API 密钥，暂时不能在页面内翻译文章。")
+            st.warning("未检测到 DeepSeek API 密钥，暂时不能自动翻译或生成热门改写。")
 
         st.divider()
         st.markdown('<div class="sidebar-keywords">', unsafe_allow_html=True)
         st.markdown('<div class="sidebar-keywords-title">监控关键词</div>', unsafe_allow_html=True)
         for group_name, keywords in KEYWORD_GROUPS.items():
-            st.markdown(f'<div class="sidebar-keywords-group">{group_name}</div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="sidebar-keywords-group">{group_name}</div>',
+                unsafe_allow_html=True,
+            )
             bilingual = [KEYWORD_TRANSLATIONS.get(keyword, keyword) for keyword in keywords]
             st.markdown(
                 f'<div class="sidebar-keywords-text">{"、".join(bilingual)}</div>',
                 unsafe_allow_html=True,
             )
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     connection = get_connection()
     try:
@@ -384,71 +518,61 @@ def main() -> None:
         st.info("当前没有符合条件的文章，可以先刷新 RSS 或降低最低分数。")
         return
 
-    for index, row in enumerate(visible_rows):
-        with st.container():
-            if row["image_url"]:
-                st.markdown(
-                    f'<div class="thumb-wrap"><img src="{row["image_url"]}" alt="article image"></div>',
-                    unsafe_allow_html=True,
-                )
+    for row in visible_rows:
+        st.markdown(
+            f"""
+            <div class="article-divider">
+              <div class="article-divider-line"></div>
+              <div class="article-score-circle"><small>相关度</small><strong>{row["score"]}</strong></div>
+              <div class="article-divider-line"></div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-            title_cols = st.columns([12, 1.4], vertical_alignment="center")
-            with title_cols[0]:
-                st.markdown(f'<div class="compact-title">### [{row["title"]}]({row["link"]})</div>', unsafe_allow_html=True)
-            with title_cols[1]:
-                _render_small_button(row["title"], "复制", f"orig-title-{row['id']}")
-
+        if row["image_url"]:
             st.markdown(
-                f'<div class="article-meta">编号：NC-{int(row["id"]):06d} | 来源：{row["source_name"]} | 地区：{_region_label(row["source_region"])} | '
-                f'相关度：{row["score"]} | 发布时间：{row["published"] or "未知"}</div>',
-                unsafe_allow_html=True,
-            )
-            if row["summary"]:
-                st.write(row["summary"])
-            if row["content_text"]:
-                st.caption(row["content_text"][:600] + ("..." if len(row["content_text"]) > 600 else ""))
-
-            badges = _badge_list(row["matched_keywords"])
-            if badges:
-                st.markdown(
-                    f'<div class="article-section-title">关键词</div><div class="label-chip">{badges}</div>',
-                    unsafe_allow_html=True,
-                )
-
-            translate_status = (
-                '<span class="status-pill status-ok">翻译完成</span>'
-                if row["translated_content"]
-                else '<span class="status-pill status-warn">待翻译</span>'
-            )
-            rewrite_status = (
-                '<span class="status-pill status-ok">改写完成</span>'
-                if row["rewritten_summary"]
-                else '<span class="status-pill status-warn">待改写</span>'
-            )
-            st.markdown(
-                f'<div style="margin: 2px 0 6px 0;">{translate_status}{rewrite_status}</div>',
+                f'<div class="thumb-wrap"><img src="{row["image_url"]}" alt="article image"></div>',
                 unsafe_allow_html=True,
             )
 
-            if row["rewritten_title"] or row["rewritten_summary"]:
-                st.markdown('<div class="rewrite-box"><strong>热门改写</strong></div>', unsafe_allow_html=True)
+        title_cols = st.columns([8.5, 1.5], vertical_alignment="center")
+        with title_cols[0]:
+            st.markdown(f"### [{row['title']}]({row['link']})")
+        with title_cols[1]:
+            _render_copy_button(row["title"], f"orig-title-{row['id']}")
+
+        _render_meta(row)
+
+        if row["summary"] or row["content_text"]:
+            with st.expander("原文摘录", expanded=False):
+                if row["summary"]:
+                    st.write(row["summary"])
+                if row["content_text"]:
+                    st.caption(row["content_text"])
+
+        _render_keywords(row)
+        _render_status(row)
+
+        if row["rewritten_title"] or row["rewritten_summary"]:
+            with st.container(border=True):
+                st.markdown('<div class="rewrite-shell"></div>', unsafe_allow_html=True)
+                st.markdown('<div class="section-kicker">热门改写</div>', unsafe_allow_html=True)
                 if row["rewritten_title"]:
-                    section_cols = st.columns([12, 1.1], vertical_alignment="center")
-                    with section_cols[0]:
-                        st.markdown('<div class="article-section-title">热门标题</div>', unsafe_allow_html=True)
-                    with section_cols[1]:
-                        _render_small_button(row["rewritten_title"], "复制", f"rewrite-title-{row['id']}")
-                    st.write(row["rewritten_title"])
+                    _render_section_header("热门标题", row["rewritten_title"], f"rewrite-title-{row['id']}")
+                    st.markdown(
+                        f'<div class="content-block">{_safe_block(row["rewritten_title"])}</div>',
+                        unsafe_allow_html=True,
+                    )
                 if row["rewritten_summary"]:
-                    section_cols = st.columns([12, 1.1], vertical_alignment="center")
-                    with section_cols[0]:
-                        st.markdown('<div class="article-section-title">热门文案</div>', unsafe_allow_html=True)
-                    with section_cols[1]:
-                        _render_small_button(row["rewritten_summary"], "复制", f"rewrite-summary-{row['id']}")
-                    st.write(row["rewritten_summary"])
+                    _render_section_header("热门文案", row["rewritten_summary"], f"rewrite-summary-{row['id']}")
+                    st.markdown(
+                        f'<div class="content-block">{_safe_block(row["rewritten_summary"])}</div>',
+                        unsafe_allow_html=True,
+                    )
                 if has_translation_api_key():
-                    rewrite_action_cols = st.columns([1, 6])
-                    with rewrite_action_cols[0]:
+                    action_cols = st.columns([1.2, 7.8])
+                    with action_cols[0]:
                         if st.button("重写", key=f"rewrite-again-{row['id']}", width="stretch"):
                             with st.spinner("正在重新生成热门稿..."):
                                 try:
@@ -459,35 +583,33 @@ def main() -> None:
                                     st.success("热门稿已更新。")
                                     st.rerun()
 
-            if row["translated_title"] or row["translated_summary"] or row["translated_content"]:
-                st.markdown('<div class="translated-box"><strong>原文翻译</strong></div>', unsafe_allow_html=True)
+        if row["translated_title"] or row["translated_summary"] or row["translated_content"]:
+            with st.container(border=True):
+                st.markdown('<div class="section-kicker">原文翻译</div>', unsafe_allow_html=True)
                 if row["translated_title"]:
-                    section_cols = st.columns([12, 1.1], vertical_alignment="center")
-                    with section_cols[0]:
-                        st.markdown('<div class="article-section-title">中文标题</div>', unsafe_allow_html=True)
-                    with section_cols[1]:
-                        _render_small_button(row["translated_title"], "复制", f"translated-title-{row['id']}")
-                    st.write(row["translated_title"])
+                    _render_section_header("中文标题", row["translated_title"], f"translated-title-{row['id']}")
+                    st.markdown(
+                        f'<div class="content-block">{_safe_block(row["translated_title"])}</div>',
+                        unsafe_allow_html=True,
+                    )
                 if row["translated_published"]:
-                    st.markdown('<div class="article-section-title">中文时间</div>', unsafe_allow_html=True)
-                    st.write(row["translated_published"])
+                    st.markdown('<div class="section-title" style="margin-top:8px;">中文时间</div>', unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div class="content-block">{_safe_block(row["translated_published"])}</div>',
+                        unsafe_allow_html=True,
+                    )
                 if row["translated_summary"]:
-                    section_cols = st.columns([12, 1.1], vertical_alignment="center")
-                    with section_cols[0]:
-                        st.markdown('<div class="article-section-title">中文摘要</div>', unsafe_allow_html=True)
-                    with section_cols[1]:
-                        _render_small_button(row["translated_summary"], "复制", f"translated-summary-{row['id']}")
-                    st.write(row["translated_summary"])
+                    _render_section_header("中文摘要", row["translated_summary"], f"translated-summary-{row['id']}")
+                    st.markdown(
+                        f'<div class="content-block">{_safe_block(row["translated_summary"])}</div>',
+                        unsafe_allow_html=True,
+                    )
                 if row["translated_content"]:
-                    section_cols = st.columns([12, 1.1], vertical_alignment="center")
-                    with section_cols[0]:
-                        st.markdown('<div class="article-section-title">中文正文</div>', unsafe_allow_html=True)
-                    with section_cols[1]:
-                        _render_small_button(row["translated_content"], "复制", f"translated-content-{row['id']}")
-                    st.write(row["translated_content"])
-
-        if index < len(visible_rows) - 1:
-            st.markdown('<div class="news-divider"></div>', unsafe_allow_html=True)
+                    _render_section_header("中文正文", row["translated_content"], f"translated-content-{row['id']}")
+                    st.markdown(
+                        f'<div class="content-block">{_safe_block(row["translated_content"])}</div>',
+                        unsafe_allow_html=True,
+                    )
 
     if len(rows) > st.session_state.visible_article_count:
         st.caption(f"还有 {len(rows) - st.session_state.visible_article_count} 篇可继续加载")
