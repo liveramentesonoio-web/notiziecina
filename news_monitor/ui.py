@@ -37,6 +37,23 @@ def _inject_styles() -> None:
     st.markdown(
         """
         <style>
+        :root {
+          color-scheme: light !important;
+        }
+        html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"], .main {
+          background: #ffffff !important;
+          color: #0f172a !important;
+        }
+        [data-testid="stSidebar"] {
+          background: #fcfcfb !important;
+          color: #0f172a !important;
+        }
+        [data-testid="stHeader"] {
+          background: rgba(255,255,255,0.92) !important;
+        }
+        p, span, div, label, li, h1, h2, h3, h4, h5, h6 {
+          color: inherit;
+        }
         html, body, [class*="css"] {
           font-family: "Source Han Sans SC", "Noto Sans CJK SC", "Noto Sans SC",
                        "PingFang SC", "Microsoft YaHei", sans-serif !important;
