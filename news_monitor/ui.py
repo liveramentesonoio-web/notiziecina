@@ -3,6 +3,7 @@ import json
 import uuid
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from news_monitor.config import KEYWORD_GROUPS, KEYWORD_TRANSLATIONS
 from news_monitor.database import get_connection, get_monitor_stats, get_regions, list_articles
@@ -289,21 +290,36 @@ def _inject_styles() -> None:
 def _render_copy_button(text: str, key: str) -> None:
     element_id = f"copy-btn-{key}-{uuid.uuid4().hex}"
     safe_text = json.dumps(text or "", ensure_ascii=False)
-    st.html(
+    components.html(
         f"""
-        <button type="button" id="{element_id}" style="
-          border:none;
-          background:#16a34a;
-          color:#ffffff;
-          border-radius:999px;
-          padding:6px 11px;
-          font-size:12px;
-          font-weight:700;
-          cursor:pointer;
-          line-height:1;
-          white-space:nowrap;">
-          复制
-        </button>
+        <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <style>
+            html, body {{
+              margin: 0;
+              padding: 0;
+              background: transparent;
+              overflow: hidden;
+            }}
+            .copy-btn {{
+              border: none;
+              background: #16a34a;
+              color: #ffffff;
+              border-radius: 999px;
+              padding: 6px 11px;
+              font-size: 12px;
+              font-weight: 700;
+              cursor: pointer;
+              line-height: 1;
+              white-space: nowrap;
+              width: 100%;
+              min-height: 30px;
+            }}
+          </style>
+        </head>
+        <body>
+        <button type="button" id="{element_id}" class="copy-btn">复制</button>
         <script>
           const btn = document.getElementById("{element_id}");
           async function copyText(text) {{
@@ -349,7 +365,11 @@ def _render_copy_button(text: str, key: str) -> None:
             }});
           }}
         </script>
-        """
+        </body>
+        </html>
+        """,
+        height=34,
+        scrolling=False,
     )
 
 
