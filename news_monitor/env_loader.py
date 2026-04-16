@@ -38,9 +38,8 @@ def _load_streamlit_secrets() -> None:
 
     try:
         secrets = st.secrets
+        for key in SECRET_KEYS:
+            if key not in os.environ and key in secrets:
+                os.environ[key] = str(secrets[key])
     except Exception:
         return
-
-    for key in SECRET_KEYS:
-        if key not in os.environ and key in secrets:
-            os.environ[key] = str(secrets[key])

@@ -111,6 +111,7 @@ def list_articles(
     min_score: int = 0,
     source_region: str = "All",
     keyword: str = "",
+    sort_mode: str = "newest",
     limit: int = 200,
 ) -> list[sqlite3.Row]:
     query = """
@@ -132,7 +133,11 @@ def list_articles(
         like = f"%{keyword.strip()}%"
         params.extend([like, like, like])
 
-    query += " ORDER BY score DESC, COALESCE(published, fetched_at) DESC LIMIT ?"
+    if sort_mode == "score":
+        query += " ORDER BY score DESC, COALESCE(published, fetched_at) DESC"
+    else:
+        query += " ORDER BY COALESCE(published, fetched_at) DESC, score DESC"
+    query += " LIMIT ?"
     params.append(limit)
 
     return connection.execute(query, params).fetchall()

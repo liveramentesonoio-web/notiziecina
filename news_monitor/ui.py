@@ -156,16 +156,16 @@ def _inject_styles() -> None:
           width: 28px;
           height: 28px;
           border-radius: 9px;
-          border: 1px solid #dbe2ea;
-          background: #ffffff;
-          color: #0f172a;
+          border: 1px solid #16a34a;
+          background: #22c55e;
+          color: #ffffff;
           font-size: 13px;
           line-height: 1;
         }
-        .tool-row {
-          display: flex;
-          align-items: center;
-          gap: 6px;
+        .news-divider {
+          height: 1px;
+          background: linear-gradient(90deg, rgba(220,38,38,0.0) 0%, rgba(220,38,38,0.7) 14%, rgba(220,38,38,0.7) 86%, rgba(220,38,38,0.0) 100%);
+          margin: 12px 0 14px 0;
         }
         @media (max-width: 768px) {
           .block-container {
@@ -189,44 +189,6 @@ def _inject_styles() -> None:
 
 def _region_label(region: str) -> str:
     return REGION_LABELS.get(region, region)
-
-
-def _render_copy_button(text: str, label: str, key: str) -> None:
-    safe_text = json.dumps(text or "", ensure_ascii=False)
-    element_id = f"copy-{key}-{uuid.uuid4().hex}"
-    components.html(
-        f"""
-        <div style="margin: 6px 0 8px 0;">
-          <button id="{element_id}" style="
-            width: 100%;
-            border: 1px solid #d4d4d8;
-            background: #ffffff;
-            color: #111827;
-            border-radius: 10px;
-            padding: 8px 12px;
-            font-size: 14px;
-            cursor: pointer;">
-            {label}
-          </button>
-        </div>
-        <script>
-          const btn = document.getElementById("{element_id}");
-          if (btn) {{
-            btn.addEventListener("click", async () => {{
-              try {{
-                await navigator.clipboard.writeText({safe_text});
-                btn.innerText = "已复制";
-                setTimeout(() => btn.innerText = "{label}", 1200);
-              }} catch (e) {{
-                btn.innerText = "复制失败";
-                setTimeout(() => btn.innerText = "{label}", 1200);
-              }}
-            }});
-          }}
-        </script>
-        """,
-        height=48,
-    )
 
 
 def _render_small_button(text: str, label: str, key: str) -> None:
@@ -307,6 +269,7 @@ def main() -> None:
         )
         relevant_only = st.toggle("只看核心结果", value=True)
         min_score = st.slider("相关度下限", min_value=0, max_value=60, value=18, step=1)
+        sort_label = st.selectbox("排序方式", ["最新优先", "相关度优先"], index=0)
         target_count = st.slider("目标文章数", min_value=5, max_value=100, value=20, step=5)
         rewrite_length = st.slider("改写字数", min_value=40, max_value=600, value=150, step=10)
         keyword = st.text_input("站内搜索", placeholder="税务 / immigrazione / rapina ...")
@@ -316,10 +279,13 @@ def main() -> None:
                 result = refresh_articles(
                     enrich_articles=enrich_articles,
                     max_enriched_articles=max_enriched_articles,
+                    auto_translate=True,
+                    rewrite_target_length=rewrite_length,
                 )
             st.success(
                 f"本次新增抓取 {result.total_count} 条，写入 {result.inserted_or_updated} 条，"
-                f"新命中 {result.relevant_count} 条。已自动跳过 {result.skipped_existing} 条本地已存在链接。"
+                f"新命中 {result.relevant_count} 条，自动翻译 {result.translated_count} 条，"
+                f"自动改写 {result.rewritten_count} 条。已自动跳过 {result.skipped_existing} 条本地已存在链接。"
             )
 
         st.divider()
@@ -362,6 +328,7 @@ def main() -> None:
             min_score=min_score,
             source_region=selected_region_value,
             keyword=keyword,
+            sort_mode="score" if sort_label == "相关度优先" else "newest",
             limit=max(300, st.session_state.visible_article_count),
         )
     finally:
@@ -388,6 +355,7 @@ def main() -> None:
         st.caption(
             f"当前结果时间跨度：{monitor_stats['oldest'] or '未知'} 到 {monitor_stats['newest'] or '未知'}"
         )
+        st.caption(f"当前排序：{sort_label}")
 
     visible_rows = rows[: st.session_state.visible_article_count]
     st.subheader(f"文章列表（显示 {len(visible_rows)} / {len(rows)}）")
@@ -395,8 +363,7 @@ def main() -> None:
         st.info("当前没有符合条件的文章，可以先刷新 RSS 或降低最低分数。")
         return
 
-    for row in visible_rows:
-        st.markdown('<div class="article-card">', unsafe_allow_html=True)
+    for index, row in enumerate(visible_rows):
         with st.container():
             if row["image_url"]:
                 st.markdown(
@@ -404,31 +371,11 @@ def main() -> None:
                     unsafe_allow_html=True,
                 )
 
-            title_cols = st.columns([12, 1.2, 1.2, 1.2], vertical_alignment="center")
+            title_cols = st.columns([12, 1.4], vertical_alignment="center")
             with title_cols[0]:
                 st.markdown(f'<div class="compact-title">### [{row["title"]}]({row["link"]})</div>', unsafe_allow_html=True)
             with title_cols[1]:
-                if not row["translated_content"] and has_translation_api_key():
-                    if st.button("译", key=f"translate-{row['id']}", help="翻译当前文章", width="stretch"):
-                        with st.spinner("正在翻译并写入本地..."):
-                            try:
-                                translate_article(row)
-                            except Exception as exc:
-                                st.error(f"翻译失败：{exc}")
-                            else:
-                                st.success("翻译完成。")
-                                st.rerun()
-            with title_cols[2]:
-                if not row["rewritten_summary"] and has_translation_api_key():
-                    if st.button("生成", key=f"rewrite-{row['id']}", help="生成热门改写", width="stretch"):
-                        with st.spinner("正在生成热门稿..."):
-                            try:
-                                rewrite_article(row, target_length=rewrite_length)
-                            except Exception as exc:
-                                st.error(f"生成失败：{exc}")
-                            else:
-                                st.success("热门稿生成完成。")
-                                st.rerun()
+                _render_small_button(row["title"], "复制", f"orig-title-{row['id']}")
 
             st.markdown(
                 f'<div class="article-meta">编号：NC-{int(row["id"]):06d} | 来源：{row["source_name"]} | 地区：{_region_label(row["source_region"])} | '
@@ -502,7 +449,9 @@ def main() -> None:
                     with section_cols[1]:
                         _render_small_button(row["translated_content"], "复制", f"translated-content-{row['id']}")
                     st.write(row["translated_content"])
-        st.markdown('</div>', unsafe_allow_html=True)
+
+        if index < len(visible_rows) - 1:
+            st.markdown('<div class="news-divider"></div>', unsafe_allow_html=True)
 
     if len(rows) > st.session_state.visible_article_count:
         st.caption(f"还有 {len(rows) - st.session_state.visible_article_count} 篇可继续加载")

@@ -13,6 +13,7 @@ from news_monitor.fetcher import fetch_all_sources
 from news_monitor.translator import (
     RewriteResult,
     TranslationResult,
+    has_translation_api_key,
     rewrite_article_for_engagement,
     translate_article_to_chinese,
 )
@@ -23,6 +24,8 @@ class RefreshResult:
     inserted_or_updated: int
     skipped_existing: int
     relevant_count: int
+    translated_count: int
+    rewritten_count: int
     total_count: int
 
 
@@ -80,6 +83,8 @@ def refresh_articles(
     *,
     enrich_articles: bool = True,
     max_enriched_articles: int = 40,
+    auto_translate: bool = True,
+    rewrite_target_length: int = 150,
 ) -> RefreshResult:
     connection = get_connection()
     try:
@@ -95,12 +100,61 @@ def refresh_articles(
     connection = get_connection()
     saved = 0
     relevant = 0
+    translated = 0
+    rewritten = 0
     try:
         for article in articles:
             if article["is_relevant"]:
                 relevant += 1
             if upsert_article(connection, article):
                 saved += 1
+
+            if auto_translate and has_translation_api_key() and article["is_relevant"]:
+                row = connection.execute(
+                    "SELECT * FROM articles WHERE link = ?",
+                    (article["link"],),
+                ).fetchone()
+                if row and not row["translated_content"]:
+                    result = translate_article_to_chinese(
+                        title=row["title"],
+                        published=row["published"] or "",
+                        summary=row["summary"] or "",
+                        content_text=row["content_text"] or row["summary"] or row["title"],
+                    )
+                    save_translation(
+                        connection,
+                        article_id=row["id"],
+                        translated_title=result.translated_title,
+                        translated_summary=result.translated_summary,
+                        translated_content=result.translated_content,
+                        translated_published=result.translated_published,
+                        translated_model=result.model,
+                    )
+                    translated += 1
+                    row = connection.execute(
+                        "SELECT * FROM articles WHERE id = ?",
+                        (row["id"],),
+                    ).fetchone()
+
+                if row and not row["rewritten_summary"]:
+                    result = rewrite_article_for_engagement(
+                        title=row["title"],
+                        published=row["published"] or "",
+                        summary=row["summary"] or "",
+                        content_text=row["content_text"] or row["summary"] or row["title"],
+                        translated_title=row["translated_title"] or "",
+                        translated_summary=row["translated_summary"] or "",
+                        translated_content=row["translated_content"] or "",
+                        target_length=rewrite_target_length,
+                    )
+                    save_rewrite(
+                        connection,
+                        article_id=row["id"],
+                        rewritten_title=result.rewritten_title,
+                        rewritten_summary=result.rewritten_summary,
+                        rewritten_model=result.model,
+                    )
+                    rewritten += 1
         connection.commit()
     finally:
         connection.close()
@@ -109,5 +163,7 @@ def refresh_articles(
         inserted_or_updated=saved,
         skipped_existing=len(known_links),
         relevant_count=relevant,
+        translated_count=translated,
+        rewritten_count=rewritten,
         total_count=len(articles),
     )
