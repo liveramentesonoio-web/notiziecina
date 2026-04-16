@@ -4,6 +4,7 @@ import uuid
 import streamlit as st
 import streamlit.components.v1 as components
 
+from news_monitor.config import KEYWORD_GROUPS, KEYWORD_TRANSLATIONS
 from news_monitor.database import get_connection, get_monitor_stats, get_regions, list_articles
 from news_monitor.service import refresh_articles, rewrite_article, translate_article
 from news_monitor.translator import has_translation_api_key
@@ -24,7 +25,8 @@ def _badge_list(values: str) -> str:
         items = json.loads(values or "[]")
     except json.JSONDecodeError:
         items = []
-    return " | ".join(items)
+    formatted = [KEYWORD_TRANSLATIONS.get(item, item) for item in items]
+    return " | ".join(formatted)
 
 
 def _inject_styles() -> None:
@@ -65,6 +67,36 @@ def _inject_styles() -> None:
           color: #64748b;
           font-size: 0.88rem;
           line-height: 1.5;
+        }
+        .sidebar-tip {
+          color: #64748b;
+          font-size: 0.82rem;
+          line-height: 1.5;
+        }
+        .sidebar-keywords {
+          background: #fafaf9;
+          border: 1px solid #ece7e1;
+          border-radius: 14px;
+          padding: 10px 12px;
+          margin-top: 10px;
+        }
+        .sidebar-keywords-title {
+          font-weight: 700;
+          font-size: 0.9rem;
+          margin-bottom: 8px;
+          color: #0f172a;
+        }
+        .sidebar-keywords-group {
+          font-size: 0.83rem;
+          color: #334155;
+          margin-top: 8px;
+          margin-bottom: 4px;
+          font-weight: 700;
+        }
+        .sidebar-keywords-text {
+          font-size: 0.79rem;
+          color: #64748b;
+          line-height: 1.55;
         }
         .label-chip {
           display: inline-block;
@@ -263,20 +295,21 @@ def main() -> None:
 
     with st.sidebar:
         st.header("控制面板")
-        enrich_articles = st.toggle("抓取文章详情页，用于补充图片和正文", value=True)
+        st.markdown('<div class="sidebar-tip">当前版本以轻量 RSS 抓取为主，自动跳过本地已存在链接。</div>', unsafe_allow_html=True)
+        enrich_articles = st.toggle("补充正文和图片", value=True)
         max_enriched_articles = st.slider(
-            "每次刷新最多深度抓取的文章数",
+            "单次深抓上限",
             min_value=0,
             max_value=300,
             value=40,
             step=10,
             disabled=not enrich_articles,
         )
-        relevant_only = st.toggle("只显示命中核心规则的结果", value=True)
-        min_score = st.slider("最低分数", min_value=0, max_value=60, value=18, step=1)
-        target_count = st.slider("希望至少保留的相关文章数量", min_value=5, max_value=100, value=20, step=5)
-        rewrite_length = st.slider("热门改写字数", min_value=40, max_value=600, value=150, step=10)
-        keyword = st.text_input("关键词搜索", placeholder="税务 / immigrazione / rapina ...")
+        relevant_only = st.toggle("只看核心结果", value=True)
+        min_score = st.slider("相关度下限", min_value=0, max_value=60, value=18, step=1)
+        target_count = st.slider("目标文章数", min_value=5, max_value=100, value=20, step=5)
+        rewrite_length = st.slider("改写字数", min_value=40, max_value=600, value=150, step=10)
+        keyword = st.text_input("站内搜索", placeholder="税务 / immigrazione / rapina ...")
 
         if st.button("刷新 RSS", type="primary", width="stretch"):
             with st.spinner("正在抓取 RSS 和文章详情页..."):
@@ -290,11 +323,23 @@ def main() -> None:
             )
 
         st.divider()
-        st.subheader("中文翻译")
+        st.subheader("AI 功能")
         if has_translation_api_key():
-            st.caption("已检测到 DeepSeek API 密钥，可直接在当前页面翻译并缓存当前文章。")
+            st.caption("已连接 DeepSeek，可直接生成翻译和热门改写。")
         else:
             st.warning("未检测到 DeepSeek API 密钥，暂时不能在页面内翻译文章。")
+
+        st.divider()
+        st.markdown('<div class="sidebar-keywords">', unsafe_allow_html=True)
+        st.markdown('<div class="sidebar-keywords-title">监控关键词</div>', unsafe_allow_html=True)
+        for group_name, keywords in KEYWORD_GROUPS.items():
+            st.markdown(f'<div class="sidebar-keywords-group">{group_name}</div>', unsafe_allow_html=True)
+            bilingual = [KEYWORD_TRANSLATIONS.get(keyword, keyword) for keyword in keywords]
+            st.markdown(
+                f'<div class="sidebar-keywords-text">{"、".join(bilingual)}</div>',
+                unsafe_allow_html=True,
+            )
+        st.markdown('</div>', unsafe_allow_html=True)
 
     connection = get_connection()
     try:
@@ -386,7 +431,7 @@ def main() -> None:
                                 st.rerun()
 
             st.markdown(
-                f'<div class="article-meta">来源：{row["source_name"]} | 地区：{_region_label(row["source_region"])} | '
+                f'<div class="article-meta">编号：NC-{int(row["id"]):06d} | 来源：{row["source_name"]} | 地区：{_region_label(row["source_region"])} | '
                 f'相关度：{row["score"]} | 发布时间：{row["published"] or "未知"}</div>',
                 unsafe_allow_html=True,
             )
