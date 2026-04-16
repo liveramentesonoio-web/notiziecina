@@ -109,21 +109,33 @@ def refresh_articles(
             if upsert_article(connection, article):
                 saved += 1
 
-            if auto_translate and has_translation_api_key() and article["is_relevant"]:
-                row = connection.execute(
-                    "SELECT * FROM articles WHERE link = ?",
-                    (article["link"],),
-                ).fetchone()
-                if row and not row["translated_content"]:
+        if auto_translate and has_translation_api_key():
+            pending_rows = connection.execute(
+                """
+                SELECT *
+                FROM articles
+                WHERE is_relevant = 1
+                  AND score >= 18
+                  AND (
+                    translated_content IS NULL OR translated_content = ''
+                    OR rewritten_summary IS NULL OR rewritten_summary = ''
+                  )
+                ORDER BY COALESCE(published, fetched_at) DESC, score DESC
+                """
+            ).fetchall()
+
+            for row in pending_rows:
+                current_row = row
+                if not current_row["translated_content"]:
                     result = translate_article_to_chinese(
-                        title=row["title"],
-                        published=row["published"] or "",
-                        summary=row["summary"] or "",
-                        content_text=row["content_text"] or row["summary"] or row["title"],
+                        title=current_row["title"],
+                        published=current_row["published"] or "",
+                        summary=current_row["summary"] or "",
+                        content_text=current_row["content_text"] or current_row["summary"] or current_row["title"],
                     )
                     save_translation(
                         connection,
-                        article_id=row["id"],
+                        article_id=current_row["id"],
                         translated_title=result.translated_title,
                         translated_summary=result.translated_summary,
                         translated_content=result.translated_content,
@@ -131,25 +143,25 @@ def refresh_articles(
                         translated_model=result.model,
                     )
                     translated += 1
-                    row = connection.execute(
+                    current_row = connection.execute(
                         "SELECT * FROM articles WHERE id = ?",
-                        (row["id"],),
+                        (current_row["id"],),
                     ).fetchone()
 
-                if row and not row["rewritten_summary"]:
+                if current_row and not current_row["rewritten_summary"]:
                     result = rewrite_article_for_engagement(
-                        title=row["title"],
-                        published=row["published"] or "",
-                        summary=row["summary"] or "",
-                        content_text=row["content_text"] or row["summary"] or row["title"],
-                        translated_title=row["translated_title"] or "",
-                        translated_summary=row["translated_summary"] or "",
-                        translated_content=row["translated_content"] or "",
+                        title=current_row["title"],
+                        published=current_row["published"] or "",
+                        summary=current_row["summary"] or "",
+                        content_text=current_row["content_text"] or current_row["summary"] or current_row["title"],
+                        translated_title=current_row["translated_title"] or "",
+                        translated_summary=current_row["translated_summary"] or "",
+                        translated_content=current_row["translated_content"] or "",
                         target_length=rewrite_target_length,
                     )
                     save_rewrite(
                         connection,
-                        article_id=row["id"],
+                        article_id=current_row["id"],
                         rewritten_title=result.rewritten_title,
                         rewritten_summary=result.rewritten_summary,
                         rewritten_model=result.model,

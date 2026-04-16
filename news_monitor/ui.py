@@ -113,6 +113,27 @@ def _inject_styles() -> None:
           margin-top: 10px;
           margin-bottom: 4px;
         }
+        .status-pill {
+          display: inline-block;
+          padding: 3px 8px;
+          border-radius: 999px;
+          font-size: 0.76rem;
+          margin-right: 6px;
+          margin-top: 6px;
+          border: 1px solid #d1d5db;
+          color: #334155;
+          background: #f8fafc;
+        }
+        .status-ok {
+          background: #f0fdf4;
+          border-color: #86efac;
+          color: #166534;
+        }
+        .status-warn {
+          background: #fff7ed;
+          border-color: #fdba74;
+          color: #9a3412;
+        }
         .translated-box {
           background: #f8fafc;
           border-radius: 12px;
@@ -393,6 +414,21 @@ def main() -> None:
                     f'<div class="article-section-title">关键词</div><div class="label-chip">{badges}</div>',
                     unsafe_allow_html=True,
                 )
+
+            translate_status = (
+                '<span class="status-pill status-ok">翻译完成</span>'
+                if row["translated_content"]
+                else '<span class="status-pill status-warn">待翻译</span>'
+            )
+            rewrite_status = (
+                '<span class="status-pill status-ok">改写完成</span>'
+                if row["rewritten_summary"]
+                else '<span class="status-pill status-warn">待改写</span>'
+            )
+            st.markdown(
+                f'<div style="margin: 2px 0 6px 0;">{translate_status}{rewrite_status}</div>',
+                unsafe_allow_html=True,
+            )
 
             if row["rewritten_title"] or row["rewritten_summary"]:
                 st.markdown('<div class="rewrite-box"><strong>热门改写</strong></div>', unsafe_allow_html=True)

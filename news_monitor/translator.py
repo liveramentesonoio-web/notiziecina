@@ -107,7 +107,7 @@ def rewrite_article_for_engagement(
     translated_title: str = "",
     translated_summary: str = "",
     translated_content: str = "",
-    target_length: int = 90,
+    target_length: int = 150,
 ) -> RewriteResult:
     api_key = os.getenv("DEEPSEEK_API_KEY")
     if not api_key:
@@ -139,8 +139,10 @@ def rewrite_article_for_engagement(
                     "要求：\n"
                     "1. rewritten_title：写一个吸引人的中文标题，适合大众阅读，但不能脱离事实。\n"
                     f"2. rewritten_summary：写一段大约 {target_length} 字的中文热门导语，"
-                    "整体控制在 60 到 120 字之间，要有吸引力，且必须以“关注了解更多后续。”结尾。\n"
-                    "3. 不要输出任何 JSON 之外的文字。"
+                    "整体控制在 80 到 600 字之间，要有吸引力。\n"
+                    "3. rewritten_summary 里必须自然带出新闻日期，如果原文有时间就写进文案。\n"
+                    "4. rewritten_summary 必须以“关注了解更多后续。”结尾。\n"
+                    "5. 不要输出任何 JSON 之外的文字。"
                 ),
             },
         ],
@@ -200,7 +202,7 @@ def _parse_json_response(text: str) -> dict:
         return json.loads(candidate)
 
 
-def _normalize_rewrite_summary(text: str, *, target_length: int = 90) -> str:
+def _normalize_rewrite_summary(text: str, *, target_length: int = 150) -> str:
     summary = " ".join((text or "").split())
     if not summary:
         return FOLLOW_TEXT
@@ -210,10 +212,11 @@ def _normalize_rewrite_summary(text: str, *, target_length: int = 90) -> str:
     elif not summary.endswith(FOLLOW_TEXT):
         summary = summary.rstrip("。！! ") + FOLLOW_TEXT
 
-    if 60 <= len(summary) <= 120:
+    min_len = 80
+    max_len = min(600, max(120, target_length + 80))
+    if min_len <= len(summary) <= max_len:
         return summary
 
-    max_len = min(120, max(60, target_length + 15))
     body_limit = max(20, max_len - len(FOLLOW_TEXT))
     body = summary.replace(FOLLOW_TEXT, "").strip().rstrip("。！! ")
     trimmed = body[:body_limit].rstrip("，,；;：: ")
