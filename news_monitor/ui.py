@@ -291,7 +291,7 @@ def _render_copy_button(text: str, key: str) -> None:
     safe_text = json.dumps(text or "", ensure_ascii=False)
     st.html(
         f"""
-        <button id="{element_id}" style="
+        <button type="button" id="{element_id}" style="
           border:none;
           background:#16a34a;
           color:#ffffff;
@@ -306,10 +306,39 @@ def _render_copy_button(text: str, key: str) -> None:
         </button>
         <script>
           const btn = document.getElementById("{element_id}");
+          async function copyText(text) {{
+            if (navigator.clipboard && window.isSecureContext) {{
+              await navigator.clipboard.writeText(text);
+              return true;
+            }}
+
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.setAttribute("readonly", "");
+            textArea.style.position = "fixed";
+            textArea.style.opacity = "0";
+            textArea.style.pointerEvents = "none";
+            textArea.style.top = "0";
+            textArea.style.left = "0";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            textArea.setSelectionRange(0, text.length);
+            let copied = false;
+            try {{
+              copied = document.execCommand("copy");
+            }} finally {{
+              document.body.removeChild(textArea);
+            }}
+            if (!copied) {{
+              throw new Error("copy failed");
+            }}
+            return true;
+          }}
           if (btn) {{
             btn.addEventListener("click", async () => {{
               try {{
-                await navigator.clipboard.writeText({safe_text});
+                await copyText({safe_text});
                 const original = btn.innerText;
                 btn.innerText = "已复制";
                 setTimeout(() => btn.innerText = original, 1200);
