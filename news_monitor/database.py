@@ -1,10 +1,12 @@
 import json
+import os
 import sqlite3
 from pathlib import Path
+import shutil
 from typing import Any
 
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data.db"
+LEGACY_DB_PATH = Path(__file__).resolve().parent.parent / "data.db"
 
 REQUIRED_COLUMNS = {
     "translated_title": "TEXT",
@@ -43,9 +45,39 @@ CREATE TABLE IF NOT EXISTS articles (
 """
 
 
+def _resolve_db_path() -> Path:
+    env_path = os.environ.get("NEWS_MONITOR_DB_PATH")
+    if env_path:
+        target = Path(env_path).expanduser().resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        return target
+
+    home = Path.home()
+    if home.joinpath("Library").exists():
+        app_dir = home / "Library" / "Application Support" / "italy-chinese-news-monitor"
+    else:
+        app_dir = home / ".local" / "share" / "italy-chinese-news-monitor"
+    app_dir.mkdir(parents=True, exist_ok=True)
+    target = app_dir / "data.db"
+
+    if not target.exists() and LEGACY_DB_PATH.exists():
+        try:
+            shutil.copy2(LEGACY_DB_PATH, target)
+        except OSError:
+            pass
+
+    return target
+
+
+DB_PATH = _resolve_db_path()
+
+
 def get_connection() -> sqlite3.Connection:
-    connection = sqlite3.connect(DB_PATH)
+    connection = sqlite3.connect(DB_PATH, timeout=30)
     connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA busy_timeout = 30000")
+    connection.execute("PRAGMA synchronous = NORMAL")
     connection.execute(SCHEMA)
     existing_columns = {
         row["name"] for row in connection.execute("PRAGMA table_info(articles)").fetchall()
